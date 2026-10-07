@@ -6,7 +6,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A00000000000000000000001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* AppDelegate.swift */; };
+		A00000000000000000000001 /* WeeklyFlowApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* WeeklyFlowApp.swift */; };
 		A00000000000000000000002 /* TaskItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000012 /* TaskItem.swift */; };
 		A00000000000000000000003 /* WeeklyReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000013 /* WeeklyReport.swift */; };
 		A00000000000000000000004 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000014 /* MainView.swift */; };
@@ -24,7 +24,7 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		A00000000000000000000011 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A00000000000000000000011 /* WeeklyFlowApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyFlowApp.swift; sourceTree = "<group>"; };
 		A00000000000000000000012 /* TaskItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskItem.swift; sourceTree = "<group>"; };
 		A00000000000000000000013 /* WeeklyReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyReport.swift; sourceTree = "<group>"; };
 		A00000000000000000000014 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
