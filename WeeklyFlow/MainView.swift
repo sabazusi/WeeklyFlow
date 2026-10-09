@@ -45,6 +45,8 @@ struct MainView: View {
     @State private var shortcut: GlobalShortcut?
     @State private var recordingShortcut = false
     @State private var shortcutMonitor: Any?
+    @State private var doubleShiftEnabled = false
+    @State private var doubleShiftNeedsPermission = false
 
     private var weekTasks: [TaskItem] {
         WeeklyReport.completedTasks(from: tasks, now: currentDate)
@@ -101,6 +103,8 @@ struct MainView: View {
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             currentDate = .now
             launchStatus = SMAppService.mainApp.status
+            hotKeyManager.refreshDoubleShiftMonitoring()
+            doubleShiftNeedsPermission = hotKeyManager.doubleShiftNeedsPermission
         }
         .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { date in
             currentDate = date
@@ -108,6 +112,9 @@ struct MainView: View {
         .onAppear {
             launchStatus = SMAppService.mainApp.status
             shortcut = hotKeyManager.shortcut
+            doubleShiftEnabled = hotKeyManager.doubleShiftEnabled
+            hotKeyManager.refreshDoubleShiftMonitoring()
+            doubleShiftNeedsPermission = hotKeyManager.doubleShiftNeedsPermission
         }
         .onDisappear { stopRecordingShortcut() }
     }
@@ -325,6 +332,15 @@ struct MainView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             }
+            Toggle("Shiftを2回押して開閉", isOn: Binding(
+                get: { doubleShiftEnabled },
+                set: setDoubleShiftEnabled
+            ))
+            if doubleShiftNeedsPermission {
+                Text("ほかのアプリでも検出するには、システム設定の「プライバシーとセキュリティ」→「アクセシビリティ」でWeeklyFlowを許可してください。許可後、WeeklyFlowに戻ると有効になります。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Divider()
             Text("タスクはこのMac内に保存されます。パネルを閉じてもメニューバーから再表示できます。")
                 .foregroundStyle(.secondary)
@@ -376,10 +392,17 @@ struct MainView: View {
         launchStatus = SMAppService.mainApp.status
     }
 
+    private func setDoubleShiftEnabled(_ enabled: Bool) {
+        hotKeyManager.setDoubleShiftEnabled(enabled)
+        doubleShiftEnabled = enabled
+        doubleShiftNeedsPermission = hotKeyManager.doubleShiftNeedsPermission
+    }
+
     private func startRecordingShortcut() {
         guard !recordingShortcut else { return }
         recordingShortcut = true
         hotKeyManager.suspend()
+        hotKeyManager.suspendDoubleShift()
         shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if event.keyCode == 53 {
                 stopRecordingShortcut()
@@ -406,6 +429,7 @@ struct MainView: View {
         if recordingShortcut {
             recordingShortcut = false
             hotKeyManager.resume()
+            hotKeyManager.resumeDoubleShift()
         }
     }
 }

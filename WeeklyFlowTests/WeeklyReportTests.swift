@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SwiftData
 import XCTest
@@ -95,5 +96,54 @@ final class WeeklyReportTests: XCTestCase {
         let tasks = try context.fetch(FetchDescriptor<TaskItem>())
         XCTAssertTrue(tasks.contains { $0.title == "保存されたタスク" })
         XCTAssertEqual(tasks.first?.sortOrder, 3)
+    }
+}
+
+final class DoubleShiftTests: XCTestCase {
+    private func shift(_ detector: inout DoubleShiftDetector, _ pressed: Bool, at time: TimeInterval, keyCode: UInt16 = 56) -> Bool {
+        detector.accept(
+            type: .flagsChanged,
+            keyCode: keyCode,
+            modifiers: pressed ? .shift : [],
+            timestamp: time
+        )
+    }
+
+    func testQuickDoubleShiftTriggersOnce() {
+        var detector = DoubleShiftDetector()
+        XCTAssertFalse(shift(&detector, true, at: 1.0))
+        XCTAssertFalse(shift(&detector, false, at: 1.1))
+        XCTAssertFalse(shift(&detector, true, at: 1.3))
+        XCTAssertTrue(shift(&detector, false, at: 1.4))
+        XCTAssertFalse(shift(&detector, true, at: 1.6))
+    }
+
+    func testSlowOrHeldShiftDoesNotTrigger() {
+        var detector = DoubleShiftDetector()
+        XCTAssertFalse(shift(&detector, true, at: 1.0))
+        XCTAssertFalse(shift(&detector, false, at: 1.5))
+        XCTAssertFalse(shift(&detector, true, at: 1.7))
+        XCTAssertFalse(shift(&detector, false, at: 1.8))
+
+        detector.reset()
+        XCTAssertFalse(shift(&detector, true, at: 2.0))
+        XCTAssertFalse(shift(&detector, false, at: 2.1))
+        XCTAssertFalse(shift(&detector, true, at: 2.7))
+        XCTAssertFalse(shift(&detector, false, at: 2.8))
+    }
+
+    func testOtherKeyAndOppositeShiftCancelSequence() {
+        var detector = DoubleShiftDetector()
+        XCTAssertFalse(shift(&detector, true, at: 1.0))
+        XCTAssertFalse(shift(&detector, false, at: 1.1))
+        XCTAssertFalse(detector.accept(type: .keyDown, keyCode: 0, modifiers: [], timestamp: 1.2))
+        XCTAssertFalse(shift(&detector, true, at: 1.3))
+        XCTAssertFalse(shift(&detector, false, at: 1.4))
+
+        detector.reset()
+        XCTAssertFalse(shift(&detector, true, at: 2.0))
+        XCTAssertFalse(shift(&detector, false, at: 2.1))
+        XCTAssertFalse(shift(&detector, true, at: 2.2, keyCode: 60))
+        XCTAssertFalse(shift(&detector, false, at: 2.3, keyCode: 60))
     }
 }

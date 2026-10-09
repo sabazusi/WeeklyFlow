@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationServices
 import Carbon
 import Foundation
 
@@ -36,16 +37,84 @@ struct GlobalShortcut: Codable, Equatable {
     }
 }
 
+struct DoubleShiftDetector {
+    private enum Phase {
+        case idle
+        case firstPress(keyCode: UInt16, at: TimeInterval)
+        case firstRelease(keyCode: UInt16, at: TimeInterval)
+        case secondPress(keyCode: UInt16, at: TimeInterval)
+    }
+
+    private static let maximumTapDuration: TimeInterval = 0.35
+    private static let maximumGap: TimeInterval = 0.45
+    private var phase: Phase = .idle
+
+    mutating func reset() {
+        phase = .idle
+    }
+
+    mutating func accept(
+        type: NSEvent.EventType,
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags,
+        timestamp: TimeInterval
+    ) -> Bool {
+        guard type == .flagsChanged, keyCode == 56 || keyCode == 60 else {
+            reset()
+            return false
+        }
+
+        let relevantModifiers = modifiers.intersection([.shift, .control, .option, .command])
+        if relevantModifiers == .shift {
+            switch phase {
+            case .firstRelease(let firstKey, let releasedAt)
+                where firstKey == keyCode && timestamp - releasedAt <= Self.maximumGap && timestamp >= releasedAt:
+                phase = .secondPress(keyCode: keyCode, at: timestamp)
+            case .idle, .firstRelease:
+                phase = .firstPress(keyCode: keyCode, at: timestamp)
+            default:
+                reset()
+            }
+        } else if relevantModifiers.isEmpty {
+            switch phase {
+            case .firstPress(let firstKey, let pressedAt)
+                where firstKey == keyCode && timestamp - pressedAt <= Self.maximumTapDuration && timestamp >= pressedAt:
+                phase = .firstRelease(keyCode: keyCode, at: timestamp)
+            case .secondPress(let secondKey, let pressedAt)
+                where secondKey == keyCode && timestamp - pressedAt <= Self.maximumTapDuration && timestamp >= pressedAt:
+                reset()
+                return true
+            default:
+                reset()
+            }
+        } else {
+            reset()
+        }
+        return false
+    }
+}
+
 final class GlobalHotKeyManager {
     private static let defaultsKey = "WeeklyFlow.globalShortcut"
+    private static let doubleShiftDefaultsKey = "WeeklyFlow.doubleShiftEnabled"
     private let onPress: () -> Void
     private var eventHandler: EventHandlerRef?
     private var hotKey: EventHotKeyRef?
+    private var globalShiftMonitor: Any?
+    private var localShiftMonitor: Any?
+    private var doubleShiftDetector = DoubleShiftDetector()
+    private var doubleShiftSuspended = false
     private(set) var shortcut: GlobalShortcut?
     private(set) var registrationError: String?
+    private(set) var doubleShiftEnabled: Bool
+
+    var doubleShiftNeedsPermission: Bool {
+        doubleShiftEnabled && !AXIsProcessTrusted()
+    }
 
     init(onPress: @escaping () -> Void) {
         self.onPress = onPress
+        doubleShiftEnabled = UserDefaults.standard.bool(forKey: Self.doubleShiftDefaultsKey)
         var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
         let status = InstallEventHandler(
             GetApplicationEventTarget(),
@@ -72,11 +141,74 @@ final class GlobalHotKeyManager {
                 shortcut = saved
             }
         }
+        refreshDoubleShiftMonitoring()
     }
 
     deinit {
         suspend()
+        stopDoubleShiftMonitoring()
         if let eventHandler { RemoveEventHandler(eventHandler) }
+    }
+
+    func setDoubleShiftEnabled(_ enabled: Bool) {
+        doubleShiftEnabled = enabled
+        UserDefaults.standard.set(enabled, forKey: Self.doubleShiftDefaultsKey)
+        if enabled && !AXIsProcessTrusted() {
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+        }
+        refreshDoubleShiftMonitoring()
+    }
+
+    func refreshDoubleShiftMonitoring() {
+        stopDoubleShiftMonitoring()
+        guard doubleShiftEnabled, !doubleShiftSuspended, AXIsProcessTrusted() else { return }
+        let mask: NSEvent.EventTypeMask = [.flagsChanged, .keyDown]
+        globalShiftMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
+            self?.acceptDoubleShiftEvent(event)
+        }
+        localShiftMonitor = NSEvent.addLocalMonitorForEvents(matching: mask) { [weak self] event in
+            self?.acceptDoubleShiftEvent(event)
+            return event
+        }
+    }
+
+    func suspendDoubleShift() {
+        doubleShiftSuspended = true
+        stopDoubleShiftMonitoring()
+    }
+
+    func resumeDoubleShift() {
+        doubleShiftSuspended = false
+        refreshDoubleShiftMonitoring()
+    }
+
+    private func stopDoubleShiftMonitoring() {
+        if let globalShiftMonitor { NSEvent.removeMonitor(globalShiftMonitor) }
+        if let localShiftMonitor { NSEvent.removeMonitor(localShiftMonitor) }
+        globalShiftMonitor = nil
+        localShiftMonitor = nil
+        doubleShiftDetector.reset()
+    }
+
+    private func acceptDoubleShiftEvent(_ event: NSEvent) {
+        if Thread.isMainThread {
+            handleDoubleShiftEvent(event)
+        } else {
+            DispatchQueue.main.async { [weak self] in self?.handleDoubleShiftEvent(event) }
+        }
+    }
+
+    private func handleDoubleShiftEvent(_ event: NSEvent) {
+        guard doubleShiftEnabled, !doubleShiftSuspended else { return }
+        if doubleShiftDetector.accept(
+            type: event.type,
+            keyCode: event.keyCode,
+            modifiers: event.modifierFlags,
+            timestamp: event.timestamp
+        ) {
+            DispatchQueue.main.async { [weak self] in self?.onPress() }
+        }
     }
 
     func suspend() {
