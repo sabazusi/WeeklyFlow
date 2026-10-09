@@ -45,6 +45,36 @@ final class WeeklyReportTests: XCTestCase {
         XCTAssertTrue(text.contains("- 10/06 14:00 資料作成"))
     }
 
+    func testCompletedHistoryGroupsByMonday() {
+        let firstWeek = TaskItem(title: "先週")
+        firstWeek.move(to: .completed, at: date(2026, 10, 4, 23))
+        let monday = TaskItem(title: "月曜")
+        monday.move(to: .completed, at: date(2026, 10, 5))
+        let sunday = TaskItem(title: "日曜")
+        sunday.move(to: .completed, at: date(2026, 10, 11, 23))
+        let groups = WeeklyReport.completedGroups(from: [firstWeek, monday, sunday], calendar: calendar)
+
+        XCTAssertEqual(groups.count, 2)
+        XCTAssertEqual(groups[0].tasks.map(\.title), ["日曜", "月曜"])
+        XCTAssertEqual(WeeklyReport.weekLabel(for: groups[0].interval, calendar: calendar), "2026/10/05〜2026/10/11")
+        XCTAssertEqual(groups[1].tasks.map(\.title), ["先週"])
+    }
+
+    func testManualOrderAndMoveBackToInbox() {
+        let older = TaskItem(title: "古いタスク", createdAt: date(2026, 10, 5))
+        let newer = TaskItem(title: "新しいタスク", createdAt: date(2026, 10, 6))
+        XCTAssertEqual(TaskOrdering.sorted([older, newer]).map(\.title), ["新しいタスク", "古いタスク"])
+
+        TaskOrdering.apply([older, newer])
+        XCTAssertEqual(TaskOrdering.sorted([newer, older]).map(\.title), ["古いタスク", "新しいタスク"])
+
+        older.move(to: .active)
+        older.move(to: .inbox)
+        TaskOrdering.placeFirst(older, among: [newer])
+        XCTAssertEqual(older.status, .inbox)
+        XCTAssertEqual(TaskOrdering.sorted([newer, older]).map(\.title), ["古いタスク", "新しいタスク"])
+    }
+
     func testTaskSurvivesReopeningLocalStore() throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -54,7 +84,9 @@ final class WeeklyReportTests: XCTestCase {
         do {
             let container = try ModelContainer(for: TaskItem.self, configurations: ModelConfiguration(url: storeURL))
             let context = ModelContext(container)
-            context.insert(TaskItem(title: "保存されたタスク"))
+            let task = TaskItem(title: "保存されたタスク")
+            task.sortOrder = 3
+            context.insert(task)
             try context.save()
         }
 
@@ -62,5 +94,6 @@ final class WeeklyReportTests: XCTestCase {
         let context = ModelContext(reopened)
         let tasks = try context.fetch(FetchDescriptor<TaskItem>())
         XCTAssertTrue(tasks.contains { $0.title == "保存されたタスク" })
+        XCTAssertEqual(tasks.first?.sortOrder, 3)
     }
 }

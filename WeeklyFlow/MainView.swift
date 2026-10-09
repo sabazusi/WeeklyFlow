@@ -33,6 +33,7 @@ private enum TaskSection: String, CaseIterable {
 }
 
 struct MainView: View {
+    let hotKeyManager: GlobalHotKeyManager
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \TaskItem.createdAt, order: .reverse) private var tasks: [TaskItem]
     @State private var section: TaskSection = .inbox
@@ -40,6 +41,10 @@ struct MainView: View {
     @State private var editingTask: TaskItem?
     @State private var errorMessage: String?
     @State private var currentDate = Date()
+    @State private var launchStatus = SMAppService.mainApp.status
+    @State private var shortcut: GlobalShortcut?
+    @State private var recordingShortcut = false
+    @State private var shortcutMonitor: Any?
 
     private var weekTasks: [TaskItem] {
         WeeklyReport.completedTasks(from: tasks, now: currentDate)
@@ -47,8 +52,8 @@ struct MainView: View {
 
     private var visibleTasks: [TaskItem] {
         switch section {
-        case .inbox: tasks.filter { $0.status == .inbox }
-        case .active: tasks.filter { $0.status == .active }
+        case .inbox: TaskOrdering.sorted(tasks.filter { $0.status == .inbox })
+        case .active: TaskOrdering.sorted(tasks.filter { $0.status == .active })
         case .completed: tasks.filter { $0.status == .completed }
         case .weekly: weekTasks
         case .settings: []
@@ -95,10 +100,16 @@ struct MainView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             currentDate = .now
+            launchStatus = SMAppService.mainApp.status
         }
         .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { date in
             currentDate = date
         }
+        .onAppear {
+            launchStatus = SMAppService.mainApp.status
+            shortcut = hotKeyManager.shortcut
+        }
+        .onDisappear { stopRecordingShortcut() }
     }
 
     private var sidebar: some View {
@@ -112,14 +123,19 @@ struct MainView: View {
                     currentDate = .now
                     section = item
                 } label: {
-                    Label(item.title, systemImage: item.symbol)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(section == item ? Color.accentColor.opacity(0.16) : Color.clear)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
+                    HStack {
+                        Label(item.title, systemImage: item.symbol)
+                        Spacer(minLength: 0)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(section == item ? Color.accentColor.opacity(0.16) : Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
             }
             Spacer()
             Button("終了") { NSApp.terminate(nil) }
@@ -170,7 +186,9 @@ struct MainView: View {
 
     private var taskContent: some View {
         Group {
-            if visibleTasks.isEmpty {
+            if section == .completed {
+                completedHistory
+            } else if visibleTasks.isEmpty {
                 ContentUnavailableView(
                     section == .weekly ? "今週の完了タスクはありません" : "タスクはありません",
                     systemImage: section == .weekly ? "calendar" : "checkmark.circle"
@@ -180,17 +198,53 @@ struct MainView: View {
                     ForEach(visibleTasks) { task in
                         taskRow(task)
                     }
+                    .onMove(perform: section == .inbox || section == .active ? reorderTasks : nil)
                 }
                 .listStyle(.plain)
             }
         }
     }
 
+    private var completedHistory: some View {
+        let groups = WeeklyReport.completedGroups(from: tasks)
+        return Group {
+            if groups.isEmpty {
+                ContentUnavailableView("タスクはありません", systemImage: "checkmark.circle")
+            } else {
+                List {
+                    ForEach(groups) { group in
+                        Section {
+                            ForEach(group.tasks) { task in
+                                taskRow(task)
+                            }
+                        } header: {
+                            Text("\(WeeklyReport.weekLabel(for: group.interval)) · \(group.tasks.count)件")
+                        }
+                    }
+                }
+                .listStyle(.plain)
+            }
+        }
+    }
+
+    private func reorderTasks(from source: IndexSet, to destination: Int) {
+        var ordered = visibleTasks
+        ordered.move(fromOffsets: source, toOffset: destination)
+        TaskOrdering.apply(ordered)
+        save()
+    }
+
     private func taskRow(_ task: TaskItem) -> some View {
         HStack(alignment: .top, spacing: 12) {
+            if task.status != .completed {
+                Image(systemName: "line.3.horizontal")
+                    .foregroundStyle(.tertiary)
+                    .help("ドラッグして並べ替え")
+            }
             Button {
                 if task.status == .completed {
                     task.undoCompletion()
+                    TaskOrdering.placeFirst(task, among: tasks.filter { $0.status == task.status })
                 } else {
                     task.move(to: .completed)
                 }
@@ -218,8 +272,12 @@ struct MainView: View {
             Spacer()
             if task.status == .inbox {
                 Button("実行リストへ") {
-                    task.move(to: .active)
-                    save()
+                    move(task, to: .active)
+                }
+                .controlSize(.small)
+            } else if task.status == .active {
+                Button("Inboxへ") {
+                    move(task, to: .inbox)
                 }
                 .controlSize(.small)
             }
@@ -233,9 +291,41 @@ struct MainView: View {
     private var settingsContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             Toggle("ログイン時に自動起動", isOn: Binding(
-                get: { SMAppService.mainApp.status == .enabled },
+                get: { launchStatus == .enabled || launchStatus == .requiresApproval },
                 set: setLaunchAtLogin
             ))
+            if launchStatus == .requiresApproval {
+                Text("自動起動の有効化には、システム設定の「ログイン項目」でWeeklyFlowを許可してください。")
+                    .foregroundStyle(.secondary)
+            }
+            Divider()
+            HStack {
+                Text("全アプリ共通のショートカット")
+                Spacer()
+                Button(recordingShortcut ? "キーを押してください…" : shortcut?.displayName ?? "設定") {
+                    startRecordingShortcut()
+                }
+                if shortcut != nil {
+                    Button("解除") {
+                        stopRecordingShortcut()
+                        do {
+                            try hotKeyManager.update(nil)
+                            shortcut = nil
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+            }
+            Text("修飾キーを2つ以上と英数字を組み合わせます。Escで設定を中止できます。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if let registrationError = hotKeyManager.registrationError {
+                Text(registrationError)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
+            Divider()
             Text("タスクはこのMac内に保存されます。パネルを閉じてもメニューバーから再表示できます。")
                 .foregroundStyle(.secondary)
             Spacer()
@@ -247,9 +337,18 @@ struct MainView: View {
         let title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { return }
         let task = TaskItem(title: title)
-        if section == .active { task.move(to: .active) }
+        let destination: TaskStatus = section == .active ? .active : .inbox
+        if destination == .active { task.move(to: .active) }
         modelContext.insert(task)
+        TaskOrdering.placeFirst(task, among: tasks.filter { $0.status == destination })
         if save() { newTitle = "" }
+    }
+
+    private func move(_ task: TaskItem, to destination: TaskStatus) {
+        let destinationTasks = tasks.filter { $0.status == destination }
+        task.move(to: destination)
+        TaskOrdering.placeFirst(task, among: destinationTasks)
+        save()
     }
 
     @discardableResult
@@ -273,6 +372,40 @@ struct MainView: View {
             }
         } catch {
             errorMessage = error.localizedDescription
+        }
+        launchStatus = SMAppService.mainApp.status
+    }
+
+    private func startRecordingShortcut() {
+        guard !recordingShortcut else { return }
+        recordingShortcut = true
+        hotKeyManager.suspend()
+        shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if event.keyCode == 53 {
+                stopRecordingShortcut()
+            } else if let candidate = GlobalShortcut(event: event) {
+                do {
+                    try hotKeyManager.update(candidate)
+                    shortcut = candidate
+                } catch {
+                    errorMessage = error.localizedDescription
+                }
+                stopRecordingShortcut()
+            } else {
+                errorMessage = "修飾キーを2つ以上と英数字を組み合わせてください。"
+            }
+            return nil
+        }
+    }
+
+    private func stopRecordingShortcut() {
+        if let shortcutMonitor {
+            NSEvent.removeMonitor(shortcutMonitor)
+            self.shortcutMonitor = nil
+        }
+        if recordingShortcut {
+            recordingShortcut = false
+            hotKeyManager.resume()
         }
     }
 }

@@ -24,6 +24,7 @@ final class TaskItem {
     var statusBeforeCompletionRaw: String?
     var createdAt: Date
     var completedAt: Date?
+    var sortOrder: Int?
 
     var status: TaskStatus {
         get { TaskStatus(rawValue: statusRaw) ?? .inbox }
@@ -38,6 +39,7 @@ final class TaskItem {
         self.statusBeforeCompletionRaw = nil
         self.createdAt = createdAt
         self.completedAt = nil
+        self.sortOrder = nil
     }
 
     func move(to newStatus: TaskStatus, at date: Date = .now) {
@@ -56,5 +58,34 @@ final class TaskItem {
         status = TaskStatus(rawValue: statusBeforeCompletionRaw ?? "") ?? .active
         statusBeforeCompletionRaw = nil
         completedAt = nil
+    }
+}
+
+enum TaskOrdering {
+    static func sorted(_ tasks: [TaskItem]) -> [TaskItem] {
+        tasks.sorted { left, right in
+            switch (left.sortOrder, right.sortOrder) {
+            case let (leftOrder?, rightOrder?) where leftOrder != rightOrder:
+                return leftOrder < rightOrder
+            case (_?, nil):
+                return true
+            case (nil, _?):
+                return false
+            default:
+                if left.createdAt != right.createdAt { return left.createdAt > right.createdAt }
+                return left.id.uuidString < right.id.uuidString
+            }
+        }
+    }
+
+    static func placeFirst(_ task: TaskItem, among existing: [TaskItem]) {
+        let remaining = sorted(existing.filter { $0.id != task.id })
+        apply([task] + remaining)
+    }
+
+    static func apply(_ tasks: [TaskItem]) {
+        for (index, task) in tasks.enumerated() {
+            task.sortOrder = index
+        }
     }
 }
