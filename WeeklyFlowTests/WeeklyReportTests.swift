@@ -61,6 +61,21 @@ final class WeeklyReportTests: XCTestCase {
         XCTAssertEqual(groups[1].tasks.map(\.title), ["先週"])
     }
 
+    func testCopyFromHistoryUsesSelectedWeek() {
+        let previous = TaskItem(title: "先週の仕事")
+        previous.move(to: .completed, at: date(2026, 10, 4, 16))
+        let current = TaskItem(title: "今週の仕事")
+        current.move(to: .completed, at: date(2026, 10, 6, 10))
+
+        let groups = WeeklyReport.completedGroups(from: [previous, current], calendar: calendar)
+        let text = WeeklyReport.copyText(for: groups[1], calendar: calendar)
+
+        XCTAssertTrue(text.contains("2026/09/28〜2026/10/04"))
+        XCTAssertTrue(text.contains("- 10/04 16:00 先週の仕事"))
+        XCTAssertFalse(text.contains("今週の仕事"))
+        XCTAssertTrue(text.contains("1件"))
+    }
+
     func testManualOrderAndMoveBackToInbox() {
         let older = TaskItem(title: "古いタスク", createdAt: date(2026, 10, 5))
         let newer = TaskItem(title: "新しいタスク", createdAt: date(2026, 10, 6))

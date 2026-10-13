@@ -54,13 +54,26 @@ enum WeeklyReport {
 
     static func copyText(for tasks: [TaskItem], now: Date = .now, calendar: Calendar = .current) -> String {
         let week = interval(containing: now, calendar: calendar)
+        return copyText(for: tasks, interval: week, heading: "今週完了したタスク", calendar: calendar)
+    }
+
+    static func copyText(for group: CompletedWeekGroup, calendar: Calendar = .current) -> String {
+        copyText(for: group.tasks, interval: group.interval, heading: "完了したタスク", calendar: calendar)
+    }
+
+    private static func copyText(
+        for tasks: [TaskItem],
+        interval: DateInterval,
+        heading: String,
+        calendar: Calendar
+    ) -> String {
         let dateFormatter = DateFormatter()
         dateFormatter.calendar = calendar
         dateFormatter.timeZone = calendar.timeZone
         dateFormatter.dateFormat = "MM/dd HH:mm"
 
-        let header = "今週完了したタスク（\(weekLabel(for: week, calendar: calendar))）：\(tasks.count)件"
-        guard !tasks.isEmpty else { return header + "\n今週完了したタスクはありません。" }
+        let header = "\(heading)（\(weekLabel(for: interval, calendar: calendar))）：\(tasks.count)件"
+        guard !tasks.isEmpty else { return header + "\n\(heading)はありません。" }
         let lines = tasks.compactMap { task -> String? in
             guard let completedAt = task.completedAt else { return nil }
             return "- \(dateFormatter.string(from: completedAt)) \(task.title)"

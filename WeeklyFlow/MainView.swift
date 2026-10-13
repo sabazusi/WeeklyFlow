@@ -47,6 +47,7 @@ struct MainView: View {
     @State private var shortcutMonitor: Any?
     @State private var doubleShiftEnabled = false
     @State private var doubleShiftNeedsPermission = false
+    @State private var pendingScrollTaskID: UUID?
 
     private var weekTasks: [TaskItem] {
         WeeklyReport.completedTasks(from: tasks, now: currentDate)
@@ -170,9 +171,7 @@ struct MainView: View {
             Spacer()
             if section == .weekly {
                 Button("コピー", systemImage: "doc.on.doc") {
-                    let text = WeeklyReport.copyText(for: weekTasks, now: currentDate)
-                    NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(text, forType: .string)
+                    copyToPasteboard(WeeklyReport.copyText(for: weekTasks, now: currentDate))
                 }
             }
         }
@@ -201,13 +200,23 @@ struct MainView: View {
                     systemImage: section == .weekly ? "calendar" : "checkmark.circle"
                 )
             } else {
-                List {
-                    ForEach(visibleTasks) { task in
-                        taskRow(task)
+                ScrollViewReader { proxy in
+                    List {
+                        ForEach(visibleTasks) { task in
+                            taskRow(task)
+                                .id(task.id)
+                        }
+                        .onMove(perform: section == .inbox || section == .active ? reorderTasks : nil)
                     }
-                    .onMove(perform: section == .inbox || section == .active ? reorderTasks : nil)
+                    .listStyle(.plain)
+                    .onAppear { scrollToAddedTask(using: proxy) }
+                    .onChange(of: visibleTasks.map(\.id)) { _, _ in
+                        scrollToAddedTask(using: proxy)
+                    }
+                    .onChange(of: pendingScrollTaskID) { _, _ in
+                        scrollToAddedTask(using: proxy)
+                    }
                 }
-                .listStyle(.plain)
             }
         }
     }
@@ -225,7 +234,16 @@ struct MainView: View {
                                 taskRow(task)
                             }
                         } header: {
-                            Text("\(WeeklyReport.weekLabel(for: group.interval)) · \(group.tasks.count)件")
+                            HStack {
+                                Text("\(WeeklyReport.weekLabel(for: group.interval)) · \(group.tasks.count)件")
+                                Spacer()
+                                Button("コピー", systemImage: "doc.on.doc") {
+                                    copyToPasteboard(WeeklyReport.copyText(for: group))
+                                }
+                                .buttonStyle(.borderless)
+                                .controlSize(.small)
+                                .help("この週の完了タスクをコピー")
+                            }
                         }
                     }
                 }
@@ -239,6 +257,21 @@ struct MainView: View {
         ordered.move(fromOffsets: source, toOffset: destination)
         TaskOrdering.apply(ordered)
         save()
+    }
+
+    private func scrollToAddedTask(using proxy: ScrollViewProxy) {
+        guard let taskID = pendingScrollTaskID,
+              visibleTasks.first?.id == taskID else { return }
+        DispatchQueue.main.async {
+            guard pendingScrollTaskID == taskID else { return }
+            proxy.scrollTo(taskID, anchor: .top)
+            pendingScrollTaskID = nil
+        }
+    }
+
+    private func copyToPasteboard(_ text: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
     }
 
     private func taskRow(_ task: TaskItem) -> some View {
@@ -357,7 +390,10 @@ struct MainView: View {
         if destination == .active { task.move(to: .active) }
         modelContext.insert(task)
         TaskOrdering.placeFirst(task, among: tasks.filter { $0.status == destination })
-        if save() { newTitle = "" }
+        if save() {
+            newTitle = ""
+            pendingScrollTaskID = task.id
+        }
     }
 
     private func move(_ task: TaskItem, to destination: TaskStatus) {
