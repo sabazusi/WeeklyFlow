@@ -48,6 +48,7 @@ struct MainView: View {
     @State private var doubleShiftEnabled = false
     @State private var doubleShiftNeedsPermission = false
     @State private var pendingScrollTaskID: UUID?
+    @FocusState private var isQuickAddFocused: Bool
 
     private var weekTasks: [TaskItem] {
         WeeklyReport.completedTasks(from: tasks, now: currentDate)
@@ -106,6 +107,10 @@ struct MainView: View {
             launchStatus = SMAppService.mainApp.status
             hotKeyManager.refreshDoubleShiftMonitoring()
             doubleShiftNeedsPermission = hotKeyManager.doubleShiftNeedsPermission
+            focusActiveInput()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .weeklyFlowDidOpen)) { _ in
+            focusActiveInput()
         }
         .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { date in
             currentDate = date
@@ -116,6 +121,7 @@ struct MainView: View {
             doubleShiftEnabled = hotKeyManager.doubleShiftEnabled
             hotKeyManager.refreshDoubleShiftMonitoring()
             doubleShiftNeedsPermission = hotKeyManager.doubleShiftNeedsPermission
+            focusActiveInput()
         }
         .onDisappear { stopRecordingShortcut() }
     }
@@ -182,6 +188,7 @@ struct MainView: View {
         HStack {
             TextField("新しいタスク", text: $newTitle)
                 .textFieldStyle(.roundedBorder)
+                .focused($isQuickAddFocused)
                 .onSubmit(addTask)
             Button("追加", action: addTask)
                 .disabled(newTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
@@ -393,6 +400,15 @@ struct MainView: View {
         if save() {
             newTitle = ""
             pendingScrollTaskID = task.id
+            isQuickAddFocused = true
+        }
+    }
+
+    private func focusActiveInput() {
+        section = .active
+        isQuickAddFocused = false
+        DispatchQueue.main.async {
+            isQuickAddFocused = true
         }
     }
 

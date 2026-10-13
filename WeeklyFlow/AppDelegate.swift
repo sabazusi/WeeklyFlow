@@ -2,6 +2,10 @@ import AppKit
 import SwiftData
 import SwiftUI
 
+extension Notification.Name {
+    static let weeklyFlowDidOpen = Notification.Name("WeeklyFlow.didOpen")
+}
+
 @main
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
@@ -57,6 +61,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             NSApp.activate()
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: .weeklyFlowDidOpen, object: nil)
+            }
         }
     }
 }
