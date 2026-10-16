@@ -102,6 +102,7 @@ final class WeeklyReportTests: XCTestCase {
             let context = ModelContext(container)
             let task = TaskItem(title: "保存されたタスク")
             task.sortOrder = 3
+            task.urlString = "https://example.com/work"
             context.insert(task)
             try context.save()
         }
@@ -111,6 +112,15 @@ final class WeeklyReportTests: XCTestCase {
         let tasks = try context.fetch(FetchDescriptor<TaskItem>())
         XCTAssertTrue(tasks.contains { $0.title == "保存されたタスク" })
         XCTAssertEqual(tasks.first?.sortOrder, 3)
+        XCTAssertEqual(tasks.first?.urlString, "https://example.com/work")
+    }
+
+    func testTaskLinkAcceptsOnlyWebURLs() {
+        XCTAssertEqual(TaskLink.url(from: " example.com/work ")?.absoluteString, "https://example.com/work")
+        XCTAssertEqual(TaskLink.url(from: "http://example.com")?.absoluteString, "http://example.com")
+        XCTAssertNil(TaskLink.url(from: "file:///private/data"))
+        XCTAssertNil(TaskLink.url(from: "https://"))
+        XCTAssertNil(TaskLink.url(from: ""))
     }
 }
 

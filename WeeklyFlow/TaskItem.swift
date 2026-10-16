@@ -25,6 +25,7 @@ final class TaskItem {
     var createdAt: Date
     var completedAt: Date?
     var sortOrder: Int?
+    var urlString: String?
 
     var status: TaskStatus {
         get { TaskStatus(rawValue: statusRaw) ?? .inbox }
@@ -40,6 +41,7 @@ final class TaskItem {
         self.createdAt = createdAt
         self.completedAt = nil
         self.sortOrder = nil
+        self.urlString = nil
     }
 
     func move(to newStatus: TaskStatus, at date: Date = .now) {
@@ -58,6 +60,19 @@ final class TaskItem {
         status = TaskStatus(rawValue: statusBeforeCompletionRaw ?? "") ?? .active
         statusBeforeCompletionRaw = nil
         completedAt = nil
+    }
+}
+
+enum TaskLink {
+    static func url(from input: String) -> URL? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let candidate = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard let components = URLComponents(string: candidate),
+              let scheme = components.scheme?.lowercased(),
+              scheme == "https" || scheme == "http",
+              let host = components.host, !host.isEmpty else { return nil }
+        return components.url
     }
 }
 

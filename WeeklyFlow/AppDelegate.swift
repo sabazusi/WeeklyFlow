@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var hotKeyManager: GlobalHotKeyManager?
+    private var textEditingShortcuts: TextEditingShortcuts?
 
     static func main() {
         let application = NSApplication.shared
@@ -21,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        textEditingShortcuts = TextEditingShortcuts()
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "checkmark.circle", accessibilityDescription: "WeeklyFlowを開く")

@@ -83,9 +83,10 @@ struct MainView: View {
         }
         .frame(minWidth: 640, minHeight: 440)
         .sheet(item: $editingTask) { task in
-            TaskEditor(task: task) { title, notes in
+            TaskEditor(task: task) { title, notes, urlString in
                 task.title = title
                 task.notes = notes
+                task.urlString = urlString
                 return save()
             } onDelete: {
                 modelContext.delete(task)
@@ -328,6 +329,14 @@ struct MainView: View {
                 }
                 .controlSize(.small)
             }
+            if let url = task.urlString.flatMap(TaskLink.url) {
+                Link(destination: url) {
+                    Image(systemName: "link")
+                }
+                .buttonStyle(.borderless)
+                .help(url.absoluteString)
+                .accessibilityLabel("URLを開く")
+            }
             Button("編集", systemImage: "square.and.pencil") { editingTask = task }
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)
@@ -490,35 +499,60 @@ private struct TaskEditor: View {
     @Environment(\.dismiss) private var dismiss
     @State private var title: String
     @State private var notes: String
+    @State private var urlText: String
     @State private var confirmingDelete = false
-    let onSave: (String, String) -> Bool
+    let onSave: (String, String, String?) -> Bool
     let onDelete: () -> Bool
 
-    init(task: TaskItem, onSave: @escaping (String, String) -> Bool, onDelete: @escaping () -> Bool) {
+    init(task: TaskItem, onSave: @escaping (String, String, String?) -> Bool, onDelete: @escaping () -> Bool) {
         _title = State(initialValue: task.title)
         _notes = State(initialValue: task.notes)
+        _urlText = State(initialValue: task.urlString ?? "")
         self.onSave = onSave
         self.onDelete = onDelete
+    }
+
+    private var enteredURL: String {
+        urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isURLInvalid: Bool {
+        !enteredURL.isEmpty && TaskLink.url(from: enteredURL) == nil
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("タスクを編集").font(.title2.bold())
             TextField("タイトル", text: $title)
+            Text("説明")
+                .font(.subheadline)
             TextEditor(text: $notes)
                 .frame(minHeight: 110)
                 .overlay(RoundedRectangle(cornerRadius: 6).stroke(.quaternary))
+            Text("URL")
+                .font(.subheadline)
+            TextField("https://example.com", text: $urlText)
+                .textFieldStyle(.roundedBorder)
+            if isURLInvalid {
+                Text("httpまたはhttpsのURLを入力してください。")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
             HStack {
                 Button("削除", role: .destructive) { confirmingDelete = true }
                 Spacer()
                 Button("キャンセル") { dismiss() }
                 Button("保存") {
-                    if onSave(title.trimmingCharacters(in: .whitespacesAndNewlines), notes) {
+                    if onSave(
+                        title.trimmingCharacters(in: .whitespacesAndNewlines),
+                        notes,
+                        TaskLink.url(from: enteredURL)?.absoluteString
+                    ) {
                         dismiss()
                     }
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isURLInvalid)
             }
         }
         .padding(24)

@@ -8,6 +8,7 @@
 /* Begin PBXBuildFile section */
 		A00000000000000000000001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000011 /* AppDelegate.swift */; };
 		A00000000000000000000006 /* GlobalHotKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000019 /* GlobalHotKey.swift */; };
+		A00000000000000000000007 /* TextEditingShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0000000000000000000001A /* TextEditingShortcuts.swift */; };
 		A00000000000000000000002 /* TaskItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000012 /* TaskItem.swift */; };
 		A00000000000000000000003 /* WeeklyReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000013 /* WeeklyReport.swift */; };
 		A00000000000000000000004 /* MainView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00000000000000000000014 /* MainView.swift */; };
@@ -27,6 +28,7 @@
 /* Begin PBXFileReference section */
 		A00000000000000000000011 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		A00000000000000000000019 /* GlobalHotKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalHotKey.swift; sourceTree = "<group>"; };
+		A0000000000000000000001A /* TextEditingShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextEditingShortcuts.swift; sourceTree = "<group>"; };
 		A00000000000000000000012 /* TaskItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TaskItem.swift; sourceTree = "<group>"; };
 		A00000000000000000000013 /* WeeklyReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WeeklyReport.swift; sourceTree = "<group>"; };
 		A00000000000000000000014 /* MainView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainView.swift; sourceTree = "<group>"; };
@@ -49,7 +51,7 @@
 		};
 		A00000000000000000000061 /* WeeklyFlow */ = {
 			isa = PBXGroup;
-			children = (A00000000000000000000011, A00000000000000000000019, A00000000000000000000012, A00000000000000000000013, A00000000000000000000014, A00000000000000000000016);
+			children = (A00000000000000000000011, A00000000000000000000019, A0000000000000000000001A, A00000000000000000000012, A00000000000000000000013, A00000000000000000000014, A00000000000000000000016);
 			path = WeeklyFlow;
 			sourceTree = "<group>";
 		};
@@ -117,7 +119,7 @@
 /* End PBXProject section */
 
 /* Begin PBXSourcesBuildPhase section */
-		A00000000000000000000052 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000001, A00000000000000000000006, A00000000000000000000002, A00000000000000000000003, A00000000000000000000004); runOnlyForDeploymentPostprocessing = 0; };
+		A00000000000000000000052 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000001, A00000000000000000000006, A00000000000000000000007, A00000000000000000000002, A00000000000000000000003, A00000000000000000000004); runOnlyForDeploymentPostprocessing = 0; };
 		A00000000000000000000053 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000005); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
