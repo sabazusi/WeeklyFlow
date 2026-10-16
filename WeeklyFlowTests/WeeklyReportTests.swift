@@ -140,6 +140,9 @@ final class DoubleShiftTests: XCTestCase {
         XCTAssertFalse(shift(&detector, false, at: 1.1))
         XCTAssertFalse(shift(&detector, true, at: 1.3))
         XCTAssertTrue(shift(&detector, false, at: 1.4))
+        XCTAssertFalse(detector.accept(type: .keyDown, keyCode: 0, modifiers: [], timestamp: 1.5))
+        XCTAssertTrue(detector.consumePendingMatch())
+        XCTAssertFalse(detector.consumePendingMatch())
         XCTAssertFalse(shift(&detector, true, at: 1.6))
     }
 
@@ -170,5 +173,26 @@ final class DoubleShiftTests: XCTestCase {
         XCTAssertFalse(shift(&detector, false, at: 2.1))
         XCTAssertFalse(shift(&detector, true, at: 2.2, keyCode: 60))
         XCTAssertFalse(shift(&detector, false, at: 2.3, keyCode: 60))
+    }
+
+    func testShiftAndLetterThenShiftDoesNotTrigger() {
+        var detector = DoubleShiftDetector()
+        XCTAssertFalse(shift(&detector, true, at: 1.0))
+        XCTAssertFalse(detector.accept(type: .keyDown, keyCode: 0, modifiers: .shift, timestamp: 1.05))
+        XCTAssertFalse(detector.accept(type: .keyUp, keyCode: 0, modifiers: .shift, timestamp: 1.1))
+        XCTAssertFalse(shift(&detector, false, at: 1.15))
+        XCTAssertFalse(shift(&detector, true, at: 1.3))
+        XCTAssertFalse(shift(&detector, false, at: 1.4))
+        XCTAssertFalse(detector.consumePendingMatch())
+    }
+
+    func testLateLetterEventCancelsPendingMatch() {
+        var detector = DoubleShiftDetector()
+        XCTAssertFalse(shift(&detector, true, at: 1.0))
+        XCTAssertFalse(shift(&detector, false, at: 1.1))
+        XCTAssertFalse(shift(&detector, true, at: 1.3))
+        XCTAssertTrue(shift(&detector, false, at: 1.4))
+        XCTAssertFalse(detector.accept(type: .keyUp, keyCode: 0, modifiers: .shift, timestamp: 1.2))
+        XCTAssertFalse(detector.consumePendingMatch())
     }
 }

@@ -41,16 +41,24 @@ struct DoubleShiftDetector {
     private enum Phase {
         case idle
         case firstPress(keyCode: UInt16, at: TimeInterval)
-        case firstRelease(keyCode: UInt16, at: TimeInterval)
-        case secondPress(keyCode: UInt16, at: TimeInterval)
+        case firstRelease(keyCode: UInt16, startedAt: TimeInterval, releasedAt: TimeInterval)
+        case secondPress(keyCode: UInt16, startedAt: TimeInterval, pressedAt: TimeInterval)
     }
 
     private static let maximumTapDuration: TimeInterval = 0.35
     private static let maximumGap: TimeInterval = 0.45
     private var phase: Phase = .idle
+    private var pendingMatch: ClosedRange<TimeInterval>?
 
     mutating func reset() {
         phase = .idle
+        pendingMatch = nil
+    }
+
+    mutating func consumePendingMatch() -> Bool {
+        guard pendingMatch != nil else { return false }
+        pendingMatch = nil
+        return true
     }
 
     mutating func accept(
@@ -59,17 +67,22 @@ struct DoubleShiftDetector {
         modifiers: NSEvent.ModifierFlags,
         timestamp: TimeInterval
     ) -> Bool {
+        // Global keyboard events can arrive after a later Shift event. An intervening
+        // key still invalidates the match when its original timestamp is in range.
+        if pendingMatch?.contains(timestamp) == true {
+            pendingMatch = nil
+        }
         guard type == .flagsChanged, keyCode == 56 || keyCode == 60 else {
-            reset()
+            phase = .idle
             return false
         }
 
         let relevantModifiers = modifiers.intersection([.shift, .control, .option, .command])
         if relevantModifiers == .shift {
             switch phase {
-            case .firstRelease(let firstKey, let releasedAt)
+            case .firstRelease(let firstKey, let startedAt, let releasedAt)
                 where firstKey == keyCode && timestamp - releasedAt <= Self.maximumGap && timestamp >= releasedAt:
-                phase = .secondPress(keyCode: keyCode, at: timestamp)
+                phase = .secondPress(keyCode: keyCode, startedAt: startedAt, pressedAt: timestamp)
             case .idle, .firstRelease:
                 phase = .firstPress(keyCode: keyCode, at: timestamp)
             default:
@@ -79,10 +92,11 @@ struct DoubleShiftDetector {
             switch phase {
             case .firstPress(let firstKey, let pressedAt)
                 where firstKey == keyCode && timestamp - pressedAt <= Self.maximumTapDuration && timestamp >= pressedAt:
-                phase = .firstRelease(keyCode: keyCode, at: timestamp)
-            case .secondPress(let secondKey, let pressedAt)
+                phase = .firstRelease(keyCode: keyCode, startedAt: pressedAt, releasedAt: timestamp)
+            case .secondPress(let secondKey, let startedAt, let pressedAt)
                 where secondKey == keyCode && timestamp - pressedAt <= Self.maximumTapDuration && timestamp >= pressedAt:
-                reset()
+                phase = .idle
+                pendingMatch = startedAt...timestamp
                 return true
             default:
                 reset()
@@ -163,7 +177,7 @@ final class GlobalHotKeyManager {
     func refreshDoubleShiftMonitoring() {
         stopDoubleShiftMonitoring()
         guard doubleShiftEnabled, !doubleShiftSuspended, AXIsProcessTrusted() else { return }
-        let mask: NSEvent.EventTypeMask = [.flagsChanged, .keyDown]
+        let mask: NSEvent.EventTypeMask = [.flagsChanged, .keyDown, .keyUp]
         globalShiftMonitor = NSEvent.addGlobalMonitorForEvents(matching: mask) { [weak self] event in
             self?.acceptDoubleShiftEvent(event)
         }
@@ -207,7 +221,12 @@ final class GlobalHotKeyManager {
             modifiers: event.modifierFlags,
             timestamp: event.timestamp
         ) {
-            DispatchQueue.main.async { [weak self] in self?.onPress() }
+            // Allow delayed key events from the global monitor to cancel a false match.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                guard let self, self.doubleShiftEnabled, !self.doubleShiftSuspended,
+                      self.doubleShiftDetector.consumePendingMatch() else { return }
+                self.onPress()
+            }
         }
     }
 
