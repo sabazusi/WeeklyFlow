@@ -330,7 +330,9 @@ struct MainView: View {
                 .controlSize(.small)
             }
             if let url = task.urlString.flatMap(TaskLink.url) {
-                Link(destination: url) {
+                Button {
+                    openTaskURL(url)
+                } label: {
                     Image(systemName: "link")
                 }
                 .buttonStyle(.borderless)
@@ -342,6 +344,16 @@ struct MainView: View {
                 .buttonStyle(.borderless)
         }
         .padding(.vertical, 7)
+    }
+
+    private func openTaskURL(_ url: URL) {
+        let workspace = NSWorkspace.shared
+        if let webURL = URL(string: "https://example.com"),
+           let browser = workspace.urlForApplication(toOpen: webURL) {
+            workspace.open([url], withApplicationAt: browser, configuration: .init(), completionHandler: nil)
+        } else {
+            workspace.open(url)
+        }
     }
 
     private var settingsContent: some View {
