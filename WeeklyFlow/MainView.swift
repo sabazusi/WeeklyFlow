@@ -38,6 +38,8 @@ struct MainView: View {
     @Query(sort: \TaskItem.createdAt, order: .reverse) private var tasks: [TaskItem]
     @State private var section: TaskSection = .inbox
     @State private var newTitle = ""
+    @State private var newURLText = ""
+    @AppStorage("WeeklyFlow.submitWithShiftReturn") private var submitWithShiftReturn = false
     @State private var editingTask: TaskItem?
     @State private var errorMessage: String?
     @State private var currentDate = Date()
@@ -48,7 +50,12 @@ struct MainView: View {
     @State private var doubleShiftEnabled = false
     @State private var doubleShiftNeedsPermission = false
     @State private var pendingScrollTaskID: UUID?
-    @FocusState private var isQuickAddFocused: Bool
+    @State private var quickAddFocusRequest = 0
+
+    private var quickAddURLIsInvalid: Bool {
+        !newURLText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && TaskLink.url(from: newURLText) == nil
+    }
 
     private var weekTasks: [TaskItem] {
         WeeklyReport.completedTasks(from: tasks, now: currentDate)
@@ -186,13 +193,38 @@ struct MainView: View {
     }
 
     private var quickAdd: some View {
-        HStack {
-            TextField("新しいタスク", text: $newTitle)
-                .textFieldStyle(.roundedBorder)
-                .focused($isQuickAddFocused)
-                .onSubmit(addTask)
+        HStack(alignment: .top, spacing: 10) {
+            VStack(alignment: .leading, spacing: 6) {
+                QuickAddTitleField(
+                    text: $newTitle,
+                    submitWithShiftReturn: submitWithShiftReturn,
+                    focusRequest: quickAddFocusRequest,
+                    onSubmit: addTask
+                )
+                .frame(height: 54)
+                .overlay(alignment: .topLeading) {
+                    if newTitle.isEmpty {
+                        Text("新しいタスク")
+                            .foregroundStyle(.placeholder)
+                            .padding(.leading, 9)
+                            .padding(.top, 7)
+                            .allowsHitTesting(false)
+                    }
+                }
+                QuickAddURLField(
+                    text: $newURLText,
+                    submitWithShiftReturn: submitWithShiftReturn,
+                    onSubmit: addTask
+                )
+                .frame(height: 26)
+                if quickAddURLIsInvalid {
+                    Text("httpまたはhttpsのURLを入力してください。")
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
             Button("追加", action: addTask)
-                .disabled(newTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(QuickAddInput.validatedDraft(title: newTitle, urlText: newURLText) == nil)
         }
         .padding(.horizontal, 20)
         .padding(.bottom, 12)
@@ -403,6 +435,13 @@ struct MainView: View {
                     .foregroundStyle(.secondary)
             }
             Divider()
+            Toggle("Shift + Enterで送信", isOn: $submitWithShiftReturn)
+            Text(submitWithShiftReturn
+                 ? "タスク欄ではEnterで改行し、Shift + Enterで追加します。URL欄でもShift + Enterで追加します。"
+                 : "タスク欄とURL欄のどちらでもEnterで追加します。タスク欄ではShift + Enterで改行できます。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Divider()
             Text("タスクはこのMac内に保存されます。パネルを閉じてもメニューバーから再表示できます。")
                 .foregroundStyle(.secondary)
             Spacer()
@@ -411,25 +450,25 @@ struct MainView: View {
     }
 
     private func addTask() {
-        let title = newTitle.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty else { return }
-        let task = TaskItem(title: title)
+        guard let draft = QuickAddInput.validatedDraft(title: newTitle, urlText: newURLText) else { return }
+        let task = TaskItem(title: draft.title)
+        task.urlString = draft.urlString
         let destination: TaskStatus = section == .active ? .active : .inbox
         if destination == .active { task.move(to: .active) }
         modelContext.insert(task)
         TaskOrdering.placeFirst(task, among: tasks.filter { $0.status == destination })
         if save() {
             newTitle = ""
+            newURLText = ""
             pendingScrollTaskID = task.id
-            isQuickAddFocused = true
+            quickAddFocusRequest += 1
         }
     }
 
     private func focusActiveInput() {
         section = .active
-        isQuickAddFocused = false
         DispatchQueue.main.async {
-            isQuickAddFocused = true
+            quickAddFocusRequest += 1
         }
     }
 
@@ -573,6 +612,148 @@ private struct TaskEditor: View {
             Button("削除", role: .destructive) {
                 if onDelete() { dismiss() }
             }
+        }
+    }
+}
+
+enum QuickAddInput {
+    struct Draft {
+        let title: String
+        let urlString: String?
+    }
+
+    static func shouldSubmit(modifiers: NSEvent.ModifierFlags, withShift: Bool) -> Bool {
+        let relevant = modifiers.intersection([.shift, .command, .option, .control])
+        return relevant == (withShift ? .shift : [])
+    }
+
+    static func validatedDraft(title: String, urlText: String) -> Draft? {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty else { return nil }
+        let trimmedURL = urlText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedURL.isEmpty { return Draft(title: trimmedTitle, urlString: nil) }
+        guard let url = TaskLink.url(from: trimmedURL) else { return nil }
+        return Draft(title: trimmedTitle, urlString: url.absoluteString)
+    }
+}
+
+private final class QuickAddTitleTextView: NSTextView {
+    var submitWithShiftReturn = false
+    var onSubmit: (() -> Void)?
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 || event.keyCode == 76 {
+            let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
+            if modifiers.isEmpty || modifiers == .shift {
+                if QuickAddInput.shouldSubmit(modifiers: modifiers, withShift: submitWithShiftReturn) {
+                    if !event.isARepeat { onSubmit?() }
+                } else {
+                    insertNewline(nil)
+                }
+                return
+            }
+        }
+        super.keyDown(with: event)
+    }
+}
+
+private struct QuickAddTitleField: NSViewRepresentable {
+    @Binding var text: String
+    let submitWithShiftReturn: Bool
+    let focusRequest: Int
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        scrollView.borderType = .bezelBorder
+        scrollView.hasVerticalScroller = true
+        scrollView.autohidesScrollers = true
+
+        let editor = QuickAddTitleTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 54))
+        editor.delegate = context.coordinator
+        editor.isRichText = false
+        editor.allowsUndo = true
+        editor.isHorizontallyResizable = false
+        editor.font = .systemFont(ofSize: NSFont.systemFontSize)
+        editor.textContainerInset = NSSize(width: 5, height: 5)
+        editor.isVerticallyResizable = true
+        editor.autoresizingMask = [.width]
+        editor.textContainer?.containerSize = NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude)
+        editor.textContainer?.widthTracksTextView = true
+        editor.setAccessibilityLabel("新しいタスク")
+        scrollView.documentView = editor
+        return scrollView
+    }
+
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let editor = scrollView.documentView as? QuickAddTitleTextView else { return }
+        context.coordinator.parent = self
+        editor.submitWithShiftReturn = submitWithShiftReturn
+        editor.onSubmit = onSubmit
+        if editor.string != text { editor.string = text }
+        if context.coordinator.lastFocusRequest != focusRequest {
+            context.coordinator.lastFocusRequest = focusRequest
+            DispatchQueue.main.async { [weak editor] in
+                guard let editor, let window = editor.window else { return }
+                window.makeFirstResponder(editor)
+            }
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: QuickAddTitleField
+        var lastFocusRequest: Int?
+
+        init(_ parent: QuickAddTitleField) { self.parent = parent }
+
+        func textDidChange(_ notification: Notification) {
+            guard let editor = notification.object as? NSTextView else { return }
+            parent.text = editor.string
+        }
+    }
+}
+
+private struct QuickAddURLField: NSViewRepresentable {
+    @Binding var text: String
+    let submitWithShiftReturn: Bool
+    let onSubmit: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.placeholderString = "URL（任意）"
+        field.delegate = context.coordinator
+        field.setAccessibilityLabel("URL")
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        if field.stringValue != text { field.stringValue = text }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: QuickAddURLField
+
+        init(_ parent: QuickAddURLField) { self.parent = parent }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSTextField else { return }
+            parent.text = field.stringValue
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            guard let event = NSApp.currentEvent, event.keyCode == 36 || event.keyCode == 76 else {
+                return false
+            }
+            if QuickAddInput.shouldSubmit(modifiers: event.modifierFlags, withShift: parent.submitWithShiftReturn),
+               !event.isARepeat {
+                parent.onSubmit()
+            }
+            return true
         }
     }
 }

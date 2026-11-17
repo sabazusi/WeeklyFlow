@@ -196,3 +196,24 @@ final class DoubleShiftTests: XCTestCase {
         XCTAssertFalse(detector.consumePendingMatch())
     }
 }
+
+final class QuickAddInputTests: XCTestCase {
+    func testReturnKeyMode() {
+        XCTAssertTrue(QuickAddInput.shouldSubmit(modifiers: [], withShift: false))
+        XCTAssertFalse(QuickAddInput.shouldSubmit(modifiers: .shift, withShift: false))
+        XCTAssertFalse(QuickAddInput.shouldSubmit(modifiers: [], withShift: true))
+        XCTAssertTrue(QuickAddInput.shouldSubmit(modifiers: .shift, withShift: true))
+        XCTAssertFalse(QuickAddInput.shouldSubmit(modifiers: [.shift, .command], withShift: true))
+    }
+
+    func testQuickAddRequiresTitleAndAcceptsOptionalWebURL() {
+        XCTAssertNil(QuickAddInput.validatedDraft(title: "  ", urlText: "example.com"))
+        XCTAssertNil(QuickAddInput.validatedDraft(title: "確認", urlText: "file:///tmp/data"))
+        XCTAssertEqual(QuickAddInput.validatedDraft(title: " 確認 ", urlText: "")?.title, "確認")
+        XCTAssertNil(QuickAddInput.validatedDraft(title: "確認", urlText: "")?.urlString)
+        XCTAssertEqual(
+            QuickAddInput.validatedDraft(title: "確認", urlText: " example.com ")?.urlString,
+            "https://example.com"
+        )
+    }
+}
