@@ -51,6 +51,7 @@ struct MainView: View {
     @State private var doubleShiftNeedsPermission = false
     @State private var pendingScrollTaskID: UUID?
     @State private var quickAddFocusRequest = 0
+    @State private var quickAddClearRequest = 0
 
     private var quickAddURLIsInvalid: Bool {
         !newURLText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -199,21 +200,14 @@ struct MainView: View {
                     text: $newTitle,
                     submitWithShiftReturn: submitWithShiftReturn,
                     focusRequest: quickAddFocusRequest,
+                    clearRequest: quickAddClearRequest,
                     onSubmit: addTask
                 )
                 .frame(height: 54)
-                .overlay(alignment: .topLeading) {
-                    if newTitle.isEmpty {
-                        Text("新しいタスク")
-                            .foregroundStyle(.placeholder)
-                            .padding(.leading, 9)
-                            .padding(.top, 7)
-                            .allowsHitTesting(false)
-                    }
-                }
                 QuickAddURLField(
                     text: $newURLText,
                     submitWithShiftReturn: submitWithShiftReturn,
+                    clearRequest: quickAddClearRequest,
                     onSubmit: addTask
                 )
                 .frame(height: 26)
@@ -460,6 +454,7 @@ struct MainView: View {
         if save() {
             newTitle = ""
             newURLText = ""
+            quickAddClearRequest += 1
             pendingScrollTaskID = task.id
             quickAddFocusRequest += 1
         }
@@ -641,7 +636,26 @@ private final class QuickAddTitleTextView: NSTextView {
     var submitWithShiftReturn = false
     var onSubmit: (() -> Void)?
 
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard string.isEmpty, !hasMarkedText() else { return }
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+            .foregroundColor: NSColor.placeholderTextColor
+        ]
+        ("新しいタスク" as NSString).draw(
+            at: NSPoint(x: textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0),
+                        y: textContainerInset.height),
+            withAttributes: attributes
+        )
+    }
+
     override func keyDown(with event: NSEvent) {
+        // Enter confirms a Japanese IME candidate before it can submit a task.
+        if hasMarkedText() {
+            super.keyDown(with: event)
+            return
+        }
         if event.keyCode == 36 || event.keyCode == 76 {
             let modifiers = event.modifierFlags.intersection([.shift, .command, .option, .control])
             if modifiers.isEmpty || modifiers == .shift {
@@ -661,6 +675,7 @@ private struct QuickAddTitleField: NSViewRepresentable {
     @Binding var text: String
     let submitWithShiftReturn: Bool
     let focusRequest: Int
+    let clearRequest: Int
     let onSubmit: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -683,6 +698,7 @@ private struct QuickAddTitleField: NSViewRepresentable {
         editor.textContainer?.containerSize = NSSize(width: 400, height: CGFloat.greatestFiniteMagnitude)
         editor.textContainer?.widthTracksTextView = true
         editor.setAccessibilityLabel("新しいタスク")
+        editor.string = text
         scrollView.documentView = editor
         return scrollView
     }
@@ -692,7 +708,12 @@ private struct QuickAddTitleField: NSViewRepresentable {
         context.coordinator.parent = self
         editor.submitWithShiftReturn = submitWithShiftReturn
         editor.onSubmit = onSubmit
-        if editor.string != text { editor.string = text }
+        // Only a successful submission clears the editor. SwiftUI state updates
+        // must never replace text that the IME is still composing.
+        if context.coordinator.lastClearRequest != clearRequest {
+            context.coordinator.lastClearRequest = clearRequest
+            editor.string = text
+        }
         if context.coordinator.lastFocusRequest != focusRequest {
             context.coordinator.lastFocusRequest = focusRequest
             DispatchQueue.main.async { [weak editor] in
@@ -705,8 +726,12 @@ private struct QuickAddTitleField: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate {
         var parent: QuickAddTitleField
         var lastFocusRequest: Int?
+        var lastClearRequest: Int
 
-        init(_ parent: QuickAddTitleField) { self.parent = parent }
+        init(_ parent: QuickAddTitleField) {
+            self.parent = parent
+            lastClearRequest = parent.clearRequest
+        }
 
         func textDidChange(_ notification: Notification) {
             guard let editor = notification.object as? NSTextView else { return }
@@ -718,6 +743,7 @@ private struct QuickAddTitleField: NSViewRepresentable {
 private struct QuickAddURLField: NSViewRepresentable {
     @Binding var text: String
     let submitWithShiftReturn: Bool
+    let clearRequest: Int
     let onSubmit: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
@@ -727,18 +753,26 @@ private struct QuickAddURLField: NSViewRepresentable {
         field.placeholderString = "URL（任意）"
         field.delegate = context.coordinator
         field.setAccessibilityLabel("URL")
+        field.stringValue = text
         return field
     }
 
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
-        if field.stringValue != text { field.stringValue = text }
+        if context.coordinator.lastClearRequest != clearRequest {
+            context.coordinator.lastClearRequest = clearRequest
+            field.stringValue = text
+        }
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: QuickAddURLField
+        var lastClearRequest: Int
 
-        init(_ parent: QuickAddURLField) { self.parent = parent }
+        init(_ parent: QuickAddURLField) {
+            self.parent = parent
+            lastClearRequest = parent.clearRequest
+        }
 
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
@@ -746,6 +780,7 @@ private struct QuickAddURLField: NSViewRepresentable {
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if textView.hasMarkedText() { return false }
             guard let event = NSApp.currentEvent, event.keyCode == 36 || event.keyCode == 76 else {
                 return false
             }
