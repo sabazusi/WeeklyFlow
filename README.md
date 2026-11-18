@@ -9,11 +9,18 @@
 
 ## 起動方法
 
-1. `WeeklyFlow.xcodeproj`をXcodeで開きます。
-2. `WeeklyFlow`スキームを選択して実行します。
-3. メニューバーのチェックマークをクリックするとパネルが前面に開き、実行リストの追加欄に入力位置が移ります。もう一度クリックすると閉じます。
+XcodeをインストールしたMacで、リポジトリのルートから次を実行します。
 
-署名が必要な場合は、Xcodeのターゲット設定で自分のTeamとBundle Identifierを指定してください。パネルを閉じてもアプリはメニューバーに残ります。終了するには左下の「終了」を押します。
+```sh
+./scripts/build.sh
+open build/WeeklyFlow.app
+```
+
+スクリプトはRelease版を`build/WeeklyFlow.app`に作成します。Xcodeの場所を自動で見つけられない場合は、`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer ./scripts/build.sh`のように指定してください。`build/`はGitの管理対象外です。ローカル利用向けのアドホック署名で、他のMacへの配布用署名・公証は行いません。
+
+Xcodeから実行する場合は`WeeklyFlow.xcodeproj`を開き、`WeeklyFlow`スキームを選んで実行します。メニューバーのチェックマークをクリックするとパネルが前面に開き、実行リストの追加欄に入力位置が移ります。もう一度クリックすると閉じます。
+
+Apple Developerの署名で配布する場合は、Xcodeのターゲット設定で自分のTeamとBundle Identifierを指定してください。パネルを閉じてもアプリはメニューバーに残ります。終了するには左下の「終了」を押します。
 
 ## 使い方
 
